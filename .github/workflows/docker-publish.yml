@@ -1,52 +1,30 @@
-name: go-build-and-image
+name: Docker
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
 
 on:
-  workflow_call:
-    inputs:
-      actor:
-        required: true
-        type: string
-      repository:
-        required: true
-        type: string
-      event_name:
-        required: true
-        type: string
-      go-version:
-        required: true
-        type: string
-    secrets:
-      token:
-        required: true
+  schedule:
+    - cron: '39 1 * * *'
+  push:
+    branches: [ "main" ]
+    # Publish semver tags as releases.
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
 
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
   # github.repository as <account>/<repo>
-  IMAGE_NAME: ${{ inputs.repository }}
+  IMAGE_NAME: ${{ github.repository }}
+
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository }}
-          token: ${{ secrets.token }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ inputs.go-version }}
-
-      - name: Build
-        run:  go build -v ./...
-
-      - name: Test
-        run:  go test -v ./...
-
-  package:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,18 +36,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository }}
-          token: ${{ secrets.token }}
 
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
       - name: Install cosign
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v3.5.0
         with:
-          cosign-release: "v2.2.4"
-
+          cosign-release: 'v2.2.4'
+          
       # https://github.com/docker/setup-qemu-action
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -87,8 +62,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ inputs.actor }}
-          password: ${{ secrets.token }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
@@ -104,7 +79,7 @@ jobs:
         id: build-and-push
         uses: docker/build-push-action@v5
         with:
-          context: ./
+          context: .
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
@@ -118,7 +93,7 @@ jobs:
       # transparency data even for private images, pass --force to cosign below.
       # https://github.com/sigstore/cosign
       - name: Sign the published Docker image
-        if: ${{ inputs.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}

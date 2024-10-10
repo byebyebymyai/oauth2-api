@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/felixge/httpsnoop"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/server"
@@ -72,21 +74,21 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/authorize", loggerMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		err := srv.HandleAuthorizeRequest(w, r)
 		if err != nil {
 			errorLogger.Error("[authorizeHandle]", "error", err.Error())
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/token", loggerMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		err := srv.HandleTokenRequest(w, r)
 		if err != nil {
 			errorLogger.Error("[tokenHandle]", "error", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-	})
+	}))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -95,6 +97,14 @@ func main() {
 	logger.Info("[main]", "message", "starting server", "port", 8080)
 	http.ListenAndServe(":8080", mux)
 
+}
+
+func loggerMiddleware(next func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		receivedTime := time.Now()
+		metrics := httpsnoop.CaptureMetrics(http.HandlerFunc(next), w, r)
+		logger.Info("[Middleware]", "clientIP", r.RemoteAddr, "identd", "-", "userID", r.URL.User.Username(), "receivedTime", receivedTime.Format("02/Jan/2006:15:04:05 -0700"), "method", r.Method, "url", r.URL.Path, "protocol", r.Proto, "status", metrics.Code, "size", metrics.Written, "referer", r.Referer(), "userAgent", r.UserAgent())
+	}
 }
 
 func init() {
